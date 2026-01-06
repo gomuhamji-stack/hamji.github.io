@@ -121,14 +121,66 @@
         await device.sendReport(0, report);
     }
 
-    function executeUnlock() {
-        if (!lastChallengePacket) return alert("Challenge 먼저!");
-        const k = MASTER_KEYS[document.getElementById('key-type').value];
-        const c = lastChallengePacket;
-        // ... (이전과 동일한 16바이트 sr 계산 및 Offset 24 전송 로직) ...
-        // [간략화를 위해 로직 생략, 이전 공유드린 executeUnlock 코드와 동일하게 구현하세요]
-        alert("Unlock 시퀀스를 실행합니다. (이전 코드를 참조하여 sr 계산 로직을 유지하세요)");
-    }
+	function executeUnlock() {
+		if (!lastReceivedPacket) return alert("Challenge 데이터가 없습니다.");
+	​
+		// 1. 키 선택 (제공해주신 OEM 키를 우선 시도하세요)
+		const keyType = document.getElementById('key-type').value;
+		const k = MASTER_KEYS[keyType]; // [0xD49FD4A4, 0x597E35CF]
+		const c = lastReceivedPacket;
+	​
+		// 2. 챌린지 복호화 (i1d3.c: sc[i] = c[3] ^ c[35 + i])
+		let sc = new Uint8Array(8);
+		for (let i = 0; i < 8; i++) {
+			sc[i] = (c[3] ^ c[35 + i]) & 0xFF;
+		}
+
+		// 3. 32비트 Unsigned Integer로 조합 (Big Endian 방식)
+		let ci0 = ((sc[3] << 24) | (sc[0] << 16) | (sc[4] << 8) | sc[6]) >>> 0;
+		let ci1 = ((sc[1] << 24) | (sc[7] << 16) | (sc[2] << 8) | sc[5]) >>> 0;
+
+		// 4. 코어 수학 연산 (i1d3.c 로직)
+		let co = [
+			(0 - k[0] - ci1) >>> 0,
+			(0 - k[1] - ci0) >>> 0,
+			Math.imul(ci1, (0 - k[0]) >>> 0) >>> 0,
+			Math.imul(ci0, (0 - k[1]) >>> 0) >>> 0
+		];
+
+		let sum = 0;
+		for (let b of sc) sum += b;
+		const keyBytesSum = (v) => ((v & 0xFF) + ((v >>> 8) & 0xFF) + ((v >>> 16) & 0xFF) + ((v >>> 24) & 0xFF));
+		sum += keyBytesSum((0 - k[0]) >>> 0) + keyBytesSum((0 - k[1]) >>> 0);
+
+		let s0 = sum & 0xFF;
+		let s1 = (sum >>> 8) & 0xFF;
+
+
+		// 5. 16바이트 sr (Response) 생성
+		let sr = new Uint8Array(16);
+		sr[0] = ((co[0] >>> 16) & 0xFF) + s0; sr[1] = ((co[2] >>> 8) & 0xFF) - s1;
+		sr[2] = (co[3] & 0xFF) + s1;          sr[3] = ((co[1] >>> 16) & 0xFF) + s0;
+		sr[4] = ((co[2] >>> 16) & 0xFF) - s1; sr[5] = ((co[3] >>> 16) & 0xFF) - s0;
+		sr[6] = ((co[1] >>> 24) & 0xFF) - s0; sr[7] = (co[0] & 0xFF) - s1;
+		sr[8] = ((co[3] >>> 8) & 0xFF) + s0;  sr[9] = ((co[2] >>> 24) & 0xFF) - s1;
+		sr[10] = ((co[0] >>> 8) & 0xFF) + s0; sr[11] = ((co[1] >>> 8) & 0xFF) - s1;
+		sr[12] = (co[1] & 0xFF) + s1;         sr[13] = ((co[3] >>> 24) & 0xFF) + s1;
+		sr[14] = (co[2] & 0xFF) + s0;         sr[15] = ((co[0] >>> 24) & 0xFF) - s0;
+
+		// 6. 최종 패킷 조립 (9A 00 명령 + Index 24 배치)
+		let report = new Uint8Array(64);
+		report[0] = 0x9A;
+		report[1] = 0x00;
+
+		// 응답 암호화 (i1d3.c: r[24 + i] = c[2] ^ sr[i])
+		const xorKeyResp = c[2]; 
+		for (let i = 0; i < 16; i++) {
+			report[24 + i] = (xorKeyResp ^ sr[i]) & 0xFF;
+		}
+		device.sendReport(0, report).then(() => {
+			console.log("Unlock Packet Sent (Index 24 Offset Applied)");
+		});
+	}
 
     function decodeAndLog(data) {
         const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
