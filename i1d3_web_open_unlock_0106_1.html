@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>i1Display 3 Advanced Laboratory</title>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; background: #f4f7f9; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .status-bar { padding: 15px; background: #eee; border-radius: 6px; margin-bottom: 20px; font-weight: bold; border-left: 5px solid #007bff; }
+        .section { border: 1px solid #ddd; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .controls { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; }
+        button { padding: 12px 18px; cursor: pointer; border: none; border-radius: 6px; background: #007bff; color: white; font-weight: bold; }
+        button:hover { background: #0056b3; }
+        .btn-green { background: #28a745; }
+        .btn-orange { background: #fd7e14; }
+        #log { background: #1e1e1e; color: #d4d4d4; padding: 15px; height: 450px; overflow-y: auto; border-radius: 6px; font-family: 'Consolas', monospace; font-size: 13px; }
+        .log-in { color: #4ec9b0; } 
+        .log-out { color: #ce9178; }
+        .interpretation { color: #ff00ea; font-weight: bold; margin-left: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>i1Display 3 / ColorMunki Direct Control</h2>
+    <button id="btn-connect" class="btn-green" style="width:100%; margin-bottom:15px;">🔌 장치 연결 (Connect)</button>
+    <div id="status" class="status-bar">상태: 연결 대기 중...</div>
+
+    <div class="section">
+        <strong>[단계 1] 상태 확인 및 챌린지 요청</strong>
+        <div class="controls">
+            <button onclick="sendHex('01 00')">상태 확인 (01 00)</button>
+            <button onclick="sendHex('99 00')">Challenge 요청 (99 00)</button>
+            <button onclick="sendHex('10 00')">장치 정보 (10 00)</button>
+        </div>
+    </div>
+
+    <div class="section">
+        <strong>[단계 2] Unlock 리스폰스 계산 및 전송 (Offset 24 적용)</strong>
+        <div class="controls">
+            <select id="key-type" style="padding:10px; border-radius:5px;">
+                <option value="OEM">제공된 OEM Key (D4 9F...)</option>
+                <option value="RETAIL">표준 Retail Key (61 CD...)</option>
+                <option value="MUNKI">ColorMunki Key (E0 1E...)</option>
+            </select>
+            <button class="btn-orange" onclick="executeUnlock()">Unlock 계산 및 16바이트 전송</button>
+        </div>
+        <small style="color: #777;">* 99 00 응답을 받은 상태에서 위 버튼을 클릭하세요.</small>
+    </div>
+
+    <div class="section">
+        <strong>[단계 3] 측정 (잠금 해제 후 가능)</strong>
+        <div class="controls">
+            <button onclick="sendHex('01 00 01 00 00 00 00 00')">측정 실행 (01 00 01...)</button>
+        </div>
+    </div>
+
+    <h4>통신 로그 (해석기 포함)</h4>
+    <div id="log"></div>
+</div>
+
+<script>
+    let device;
+    let lastChallengePacket = null;
+
+    // 정의된 마스터 키 리스트
+    const MASTER_KEYS = {
+        OEM: [0xD49FD4A4 >>> 0, 0x597E35CF >>> 0],
+        RETAIL: [0x61CDD11E >>> 0, 0x9D9C1672 >>> 0],
+        MUNKI: [0xE01E6E0A >>> 0, 0x257462DE >>> 0]
+    };
+
+    document.getElementById('btn-connect').addEventListener('click', async () => {
+        try {
+            const devices = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x0765, productId: 0x5020 }] });
+            if (devices.length > 0) {
+                device = devices[0];
+                await device.open();
+                document.getElementById('status').innerText = "상태: " + device.productName + " 연결됨";
+                device.oninputreport = (e) => {
+                    const data = new Uint8Array(e.data.buffer);
+                    if (data[1] === 0x99) lastChallengePacket = data; 
+                    logResponse(data);
+                };
+            }
+        } catch (err) { log("Error: " + err.message, "err"); }
+    });
+
+    // 수신 로그 해석 및 출력 함수
+    function logResponse(data) {
+        const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+        let ascii = Array.from(data).map(b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : ".").join('');
+        
+        let interpretation = "";
+        // 주요 상태 해석 로직 추가
+        if (ascii.includes("Locked")) {
+            interpretation = " [해석: 장치 잠김 상태 - Unlock이 필요합니다]";
+        } else if (hex.includes("45 72 72 6F 72 3A 20 55 6E 6B 6E 6F 77 6E")) {
+            interpretation = " [해석: 알 수 없는 명령어 에러 - 바이트 순서를 확인하세요]";
+        } else if (data[0] === 0x00 && data[1] === 0x9A) {
+            if (data[2] === 0xFA) interpretation = " [해석: Unlock 실패 - 키값이 틀립니다]";
+            else interpretation = " [해석: Unlock 성공 시도 완료]";
+        }
+
+        const logEl = document.getElementById('log');
+        logEl.innerHTML += `<div style="margin-bottom:5px;"><span class="log-in"><< [RECV]</span> ${hex}<br><small style="color:#aaa;">TXT: ${ascii}</small><span class="interpretation">${interpretation}</span></div>`;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    async function sendHex(hexStr) {
+        if (!device) return alert("장치를 연결하세요.");
+        const bytes = hexStr.replace(/\s+/g, '').match(/.{1,2}/g).map(h => parseInt(h, 16));
+        const report = new Uint8Array(64); // i1D3 64바이트 패딩 필수
+        report.set(bytes);
+        await device.sendReport(0, report);
+        log(`>> [SEND] ${hexStr}`, "out");
+    }
+
+    // i1d3.c 드라이버 로직을 기반으로 한 잠금 해제 실행 함수
+    function executeUnlock() {
+        if (!lastChallengePacket) return alert("먼저 99 00 명령으로 챌린지 데이터를 받으세요.");
+
+        const keyType = document.getElementById('key-type').value;
+        const k = MASTER_KEYS[keyType];
+        const c = lastChallengePacket;
+
+        // 1. 챌린지 복호화 (index 3 XOR 키 적용)
+        let sc = new Uint8Array(8);
+        for (let i = 0; i < 8; i++) sc[i] = (c[3] ^ c[35 + i]) & 0xFF; 
+
+        // 2. 32비트 Unsigned 정수 조합
+        let ci0 = ((sc[3] << 24) | (sc[0] << 16) | (sc[4] << 8) | sc[6]) >>> 0;
+        let ci1 = ((sc[1] << 24) | (sc[7] << 16) | (sc[2] << 8) | sc[5]) >>> 0;
+
+        // 3. 핵심 수학 연산
+        let co = [
+            (0 - k[0] - ci1) >>> 0,
+            (0 - k[1] - ci0) >>> 0,
+            Math.imul(ci1, (0 - k[0]) >>> 0) >>> 0,
+            Math.imul(ci0, (0 - k[1]) >>> 0) >>> 0
+        ];
+
+        let sum = 0;
+        for (let b of sc) sum += b;
+        const keySum = (v) => ((v & 0xff) + ((v >>> 8) & 0xff) + ((v >>> 16) & 0xff) + ((v >>> 24) & 0xff));
+        sum += keySum((0 - k[0]) >>> 0) + keySum((0 - k[1]) >>> 0);
+        let s0 = sum & 0xff, s1 = (sum >>> 8) & 0xff;
+
+        // 4. 16바이트 리스폰스 조립
+        let sr = new Uint8Array(16);
+        sr[0] = ((co[0] >>> 16) & 0xFF) + s0; sr[1] = ((co[2] >>> 8) & 0xFF) - s1;
+        sr[2] = (co[3] & 0xFF) + s1;          sr[3] = ((co[1] >>> 16) & 0xFF) + s0;
+        sr[4] = ((co[2] >>> 16) & 0xFF) - s1; sr[5] = ((co[3] >>> 16) & 0xFF) - s0;
+        sr[6] = ((co[1] >>> 24) & 0xFF) - s0; sr[7] = (co[0] & 0xFF) - s1;
+        sr[8] = ((co[3] >>> 8) & 0xFF) + s0;  sr[9] = ((co[2] >>> 24) & 0xFF) - s1;
+        sr[10] = ((co[0] >>> 8) & 0xFF) + s0; sr[11] = ((co[1] >>> 8) & 0xFF) - s1;
+        sr[12] = (co[1] & 0xFF) + s1;         sr[13] = ((co[3] >>> 24) & 0xFF) + s1;
+        sr[14] = (co[2] & 0xFF) + s0;         sr[15] = ((co[0] >>> 24) & 0xFF) - s0;
+
+        // 5. 패킷 조립: Index 24부터 배치 및 XOR 암호화
+        let report = new Uint8Array(64);
+        report[0] = 0x9A;
+        report[1] = 0x00;
+        const xorKeyResp = c[2]; // index 2 XOR 키 적용
+        for (let i = 0; i < 16; i++) {
+            report[24 + i] = (xorKeyResp ^ sr[i]) & 0xFF; 
+        }
+
+        device.sendReport(0, report).then(() => {
+            log(`>> [SEND UNLOCK] 9A 00 ... (Offset 24 Applied using ${keyType} Key)`, "out");
+        });
+    }
+
+    function log(msg, type) {
+        const logEl = document.getElementById('log');
+        const color = type === "out" ? "#ce9178" : (type === "err" ? "#f44747" : "#808080");
+        logEl.innerHTML += `<div style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+</script>
+</body>
+</html>
