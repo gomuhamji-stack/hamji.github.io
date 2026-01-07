@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>i1Display 3 Lab - Full Integration</title>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; background: #f4f7f9; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .status-bar { padding: 15px; background: #eee; border-radius: 6px; margin-bottom: 20px; font-weight: bold; border-left: 5px solid #007bff; }
+        .section { border: 1px solid #ddd; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .controls { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; }
+        button { padding: 12px 18px; cursor: pointer; border: none; border-radius: 6px; background: #007bff; color: white; font-weight: bold; transition: 0.3s; }
+        button:hover { background: #0056b3; }
+        .btn-green { background: #28a745; }
+        .btn-orange { background: #fd7e14; }
+        #log { background: #1e1e1e; color: #d4d4d4; padding: 15px; height: 500px; overflow-y: auto; border-radius: 6px; font-family: 'Consolas', monospace; font-size: 13px; line-height: 1.6; }
+        .log-in { color: #4ec9b0; } 
+        .log-out { color: #ce9178; }
+        .interpretation { color: #ff00ea; font-weight: bold; margin-left: 10px; }
+        .xyz-val { color: #ffff00; font-weight: bold; background: #333; padding: 2px 5px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>i1Display 3 / ColorMunki Direct Control</h2>
+    <button id="btn-connect" class="btn-green" style="width:100%; margin-bottom:15px;">🔌 장치 연결 (Connect)</button>
+    <div id="status" class="status-bar">상태: 연결 대기 중...</div>
+
+    <div class="section">
+        <strong>[단계 1] 정보 확인 및 초기화</strong>
+        <div class="controls">
+            <button class="btn-orange" onclick="runInitSequence()">자동 초기화 (순차 실행)</button>
+            <button onclick="sendHex('00 20')">잠금 상태 확인 (00 20)</button>
+        </div>
+    </div>
+
+    <div class="section">
+        <strong>[단계 2] Unlock (로그 기반 성공 키 사용)</strong>
+        <div class="controls">
+            <button class="btn-orange" onclick="sendHex('99 00')">1. Challenge 요청 (99 00)</button>
+            <button class="btn-orange" onclick="executeUnlock()">2. 성공 키(Key 3)로 Unlock 전송</button>
+        </div>
+        <small style="color: #666;">* 로그에서 성공이 확인된 3번째 키(0xCAA62B2C, 0x30815B61)를 사용합니다.</small>
+    </div>
+
+    <div class="section">
+        <strong>[단계 3] 측정 및 XYZ 실시간 변환</strong>
+        <div class="controls">
+            <button onclick="sendHex('04 00 9F 24 00 00 07 E8 03')">AIO 측정 (0.2초)</button>
+            <button onclick="sendHex('94 00')">디퓨저 위치 (94 00)</button>
+        </div>
+    </div>
+    <h4>통신 로그</h4>
+    <div id="log"></div>
+</div>
+
+<script>
+    let device;
+    let lastReceivedPacket = null;
+
+    // 로그 분석 결과: 3번째 시도한 키가 성공함
+    // Argyll CMS 소스 기반 3번째 키 값 세팅
+    const K_SUCCESS = [0xCAA62B2C >>> 0, 0x30815B61 >>> 0]; 
+
+    // 사용자의 로그에서 확인된 고유 Emissive Matrix
+    const MATRIX = [
+        [0.035814, -0.021980, 0.016668],
+        [0.014015, 0.016946, 0.000451],
+        [-0.000407, 0.000830, 0.078830]
+    ];
+
+    document.getElementById('btn-connect').addEventListener('click', async () => {
+        try {
+            const devices = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x0765, productId: 0x5020 }] });
+            if (devices.length > 0) {
+                device = devices[0];
+                await device.open();
+                document.getElementById('status').innerText = "상태: " + device.productName + " 연결됨";
+                device.oninputreport = (e) => {
+                    const data = new Uint8Array(e.data.buffer);
+                    lastReceivedPacket = data;
+                    logResponse(data);
+                };
+                log("장치 연결 성공", "sys");
+            }
+        } catch (err) { log("Error: " + err.message, "err"); }
+    });
+
+    async function runInitSequence() {
+        const cmds = ['00 01', '00 10', '00 11', '00 12', '10 00', '00 31', '00 13', '00 20'];
+        for (const cmd of cmds) {
+            await sendHex(cmd);
+            await new Promise(r => setTimeout(r, 200));
+        }
+    }
+
+    function logResponse(data) {
+        const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+        let ascii = Array.from(data).map(b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : ".").join('');
+        let interpretation = "";
+
+        if (data[1] === 0x04) {
+            // Little Endian 데이터 추출
+            const view = new DataView(data.buffer);
+            const rCnt = view.getUint32(2, true), gCnt = view.getUint32(6, true), bCnt = view.getUint32(10, true);
+            const rClk = view.getUint32(14, true), gClk = view.getUint32(18, true), bClk = view.getUint32(22, true);
+            
+            // Hz 계산 (Count - 1) * 0.25 / (Clock / 48MHz)
+            const toHz = (cnt, clk) => (cnt <= 1) ? 0 : (cnt - 1) * 0.25 / (clk / 48000000);
+            const R = toHz(rCnt, rClk), G = toHz(gCnt, gClk), B = toHz(bCnt, bClk);
+
+            // 행렬 연산으로 XYZ 도출
+            const X = (MATRIX[0][0] * R) + (MATRIX[0][1] * G) + (MATRIX[0][2] * B);
+            const Y = (MATRIX[1][0] * R) + (MATRIX[1][1] * G) + (MATRIX[1][2] * B);
+            const Z = (MATRIX[2][0] * R) + (MATRIX[2][1] * G) + (MATRIX[2][2] * B);
+
+            interpretation = ` <span class="xyz-val">[해석: XYZ (X: ${X.toFixed(4)}, Y: ${Y.toFixed(4)}, Z: ${Z.toFixed(4)})]</span>`;
+        } else {
+            if (data[1] === 0x20) interpretation = ` [해석: 장치 ${data[2] === 0 ? 'Unlocked (열림)' : 'Locked (잠김)'}]`;
+            if (data[0] === 0x00 && data[1] === 0x9A && data[2] === 0x77) interpretation = " [해석: Unlock 성공!]";
+            if (ascii.includes("Locked")) interpretation = " [해석: 잠금 상태로 인한 거부]";
+        }
+
+        const logEl = document.getElementById('log');
+        logEl.innerHTML += `<div style="margin-bottom:5px;"><span class="log-in"><< [RECV]</span> ${hex}<br><small style="color:#aaa;">TXT: ${ascii}</small><span class="interpretation">${interpretation}</span></div>`;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    async function sendHex(hexStr) {
+        if (!device) return alert("연결 필수");
+        const bytes = hexStr.replace(/\s+/g, '').match(/.{1,2}/g).map(h => parseInt(h, 16));
+        const report = new Uint8Array(64);
+        report.set(bytes);
+        await device.sendReport(0, report);
+        log(`>> [SEND] ${hexStr}`, "out");
+    }
+
+    function executeUnlock() {
+        if (!lastReceivedPacket || lastReceivedPacket[1] !== 0x99) return alert("Challenge(99 00) 필요");
+        
+        const k = K_SUCCESS; 
+        const c = lastReceivedPacket;
+
+        // i1d3.c 정밀 복제 연산
+        let sc = new Uint8Array(8);
+        for (let i = 0; i < 8; i++) sc[i] = (c[3] ^ c[35 + i]) & 0xFF; 
+
+        let ci0 = ((sc[3] << 24) | (sc[0] << 16) | (sc[4] << 8) | sc[6]) >>> 0;
+        let ci1 = ((sc[1] << 24) | (sc[7] << 16) | (sc[2] << 8) | sc[5]) >>> 0;
+
+        // C언어의 2의 보수 연산을 JavaScript 비트 연산으로 재현 (~v + 1)
+        const negK0 = (~k[0] + 1) >>> 0;
+        const negK1 = (~k[1] + 1) >>> 0;
+
+        let co = [
+            (negK0 - ci1) >>> 0,
+            (negK1 - ci0) >>> 0,
+            Math.imul(ci1, negK0) >>> 0,
+            Math.imul(ci0, negK1) >>> 0
+        ];
+
+        let sum = 0;
+        for (let b of sc) sum += b;
+        const kSum = (v) => ((v & 0xFF) + ((v >>> 8) & 0xFF) + ((v >>> 16) & 0xFF) + ((v >>> 24) & 0xFF));
+        sum += kSum(negK0) + kSum(negK1);
+        let s0 = sum & 0xFF, s1 = (sum >>> 8) & 0xFF;
+
+        let sr = new Uint8Array(16);
+        sr[0] = ((co[0] >>> 16) & 0xFF) + s0; sr[1] = ((co[2] >>> 8) & 0xFF) - s1; sr[2] = (co[3] & 0xFF) + s1; sr[3] = ((co[1] >>> 16) & 0xFF) + s0;
+        sr[4] = ((co[2] >>> 16) & 0xFF) - s1; sr[5] = ((co[3] >>> 16) & 0xFF) - s0; sr[6] = ((co[1] >>> 24) & 0xFF) - s0; sr[7] = (co[0] & 0xFF) - s1;
+        sr[8] = ((co[3] >>> 8) & 0xFF) + s0; sr[9] = ((co[2] >>> 24) & 0xFF) - s1; sr[10] = ((co[0] >>> 8) & 0xFF) + s0; sr[11] = ((co[1] >>> 8) & 0xFF) - s1;
+        sr[12] = (co[1] & 0xFF) + s1; sr[13] = ((co[3] >>> 24) & 0xFF) + s1; sr[14] = (co[2] & 0xFF) + s0; sr[15] = ((co[0] >>> 24) & 0xFF) - s0;
+
+        let report = new Uint8Array(64);
+        report[0] = 0x9A;
+        const xKey = c[2]; // Response XOR Key
+        for (let i = 0; i < 16; i++) {
+            report[24 + i] = (xKey ^ sr[i]) & 0xFF; // Offset 24 적용
+        }
+
+        device.sendReport(0, report).then(() => log(`>> [SEND UNLOCK] 9A 00 (Offset 24 Applied)`, "out"));
+    }
+
+    function log(msg, type) {
+        const logEl = document.getElementById('log');
+        const color = type === "out" ? "#ce9178" : (type === "err" ? "#f44747" : (type === "sys" ? "#808080" : "#4ec9b0"));
+        logEl.innerHTML += `<div style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+</script>
+</body>
+</html>
