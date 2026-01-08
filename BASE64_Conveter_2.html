@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Base64 - Float Matrix 변환기</title>
+    <script>
+        function base64ToFloat() {
+            let base64Input = document.getElementById("base64Input").value;
+            let binaryData = atob(base64Input);
+            let floatArray = [];
+            let dataView = new DataView(new ArrayBuffer(4));
+            
+            for (let i = 0; i < binaryData.length; i += 4) {
+                for (let j = 0; j < 4; j++) {
+                    dataView.setUint8(j, binaryData.charCodeAt(i + j));
+                }
+                floatArray.push(dataView.getFloat32(0, true).toFixed(1));
+            }
+            document.getElementById("floatOutput").value = floatArray.join(", ");
+        }
+
+        function floatToBase64() {
+            let floatInput = document.getElementById("floatInput").value.split(",").map(Number);
+            let binaryData = "";
+            let buffer = new ArrayBuffer(4);
+            let dataView = new DataView(buffer);
+            
+            floatInput.forEach(f => {
+                dataView.setFloat32(0, f, true);
+                for (let i = 0; i < 4; i++) {
+                    binaryData += String.fromCharCode(dataView.getUint8(i));
+                }
+            });
+            let base64Output = btoa(binaryData);
+            document.getElementById("base64Output").value = base64Output;
+        }
+    </script>
+</head>
+<body>
+    <h2>Base64 - Float Matrix 변환기</h2>
+    <h2>Base64 로 만들어진 실수형 데이터를 encoder / decoder </h2>
+    <label for="base64Input">BASE64 Data:</label>
+    <input type="text" id="base64Input" size="80" value="AACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/">
+    <button onclick="base64ToFloat()">변환1</button>
+    <br>
+    <label for="floatOutput">Float Data:</label>
+    <input type="text" id="floatOutput" size="80" value="1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0" readonly>
+    
+    <hr>
+    
+    <label for="floatInput">Float Data:</label>
+    <input type="text" id="floatInput" size="80" value="1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0">
+    <button onclick="floatToBase64()">변환2</button>
+    <br>
+    <label for="base64Output">BASE64 Data:</label>
+    <input type="text" id="base64Output" size="80" readonly>
+</body>
+</html>
