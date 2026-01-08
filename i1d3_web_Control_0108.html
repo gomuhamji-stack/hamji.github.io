@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>i1Display 3 Lab - Auto Unlock & Delta E 2000</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f9; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .status-bar { padding: 15px; background: #eee; border-radius: 6px; margin-bottom: 20px; font-weight: bold; border-left: 5px solid #007bff; }
+        .section { border: 1px solid #ddd; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .controls { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; flex-wrap: wrap; }
+        button { padding: 10px 15px; cursor: pointer; border: none; border-radius: 6px; background: #007bff; color: white; font-weight: bold; transition: 0.3s; }
+        button:hover { background: #0056b3; }
+        input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .btn-green { background: #28a745; }
+        .btn-orange { background: #fd7e14; }
+        #log { background: #1e1e1e; color: #d4d4d4; padding: 15px; height: 400px; overflow-y: auto; border-radius: 6px; font-family: 'Consolas', monospace; font-size: 13px; line-height: 1.6; }
+        .log-in { color: #4ec9b0; } 
+        .log-out { color: #ce9178; }
+        .log-sys { color: #808080; font-style: italic; }
+        .xyz-val { color: #ffff00; font-weight: bold; background: #333; padding: 2px 5px; border-radius: 3px; display: inline-block; margin-top: 2px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>i1Display 3 / ColorMunki Direct Control</h2>
+    <button id="btn-connect" class="btn-green" style="width:100%; margin-bottom:15px;">🔌 Connect Device</button>
+    <div id="status" class="status-bar">Status: Waiting for connection...</div>
+
+    <div class="section">
+        <strong>[Step 1] Device Info & Initialization</strong>
+        <div class="controls">
+            <button class="btn-orange" onclick="runInitSequence()">Auto Initialization</button>
+            <button onclick="sendHex('00 20')">Check Lock Status (00 20)</button>
+        </div>
+    </div>
+
+    <div class="section">
+        <strong>[Step 2] Unlock (Brute-force Auto-Find)</strong>
+        <div class="controls">
+            <button class="btn-orange" onclick="sendHex('99 00')">1. Request Challenge (99 00)</button>
+            <button class="btn-orange" style="background: #e83e8c;" onclick="autoFindUnlock()">2. Auto-Find Unlock Key</button>
+        </div>
+        <small style="color: #666;">* Attempts 11 master keys sequentially to find the '00 9A 77' success code.</small>
+    </div>
+
+    <div class="section">
+        <strong>[Step 3] Measurement & Color Analysis</strong>
+        <div class="controls">
+            <button onclick="sendHex('04 00 9F 24 00 00 07 E8 03')">AIO Measure (0.2s)</button>
+            <button onclick="sendHex('94 00')">Get Diffuser Position (94 00)</button>
+        </div>
+    </div>
+
+    <div class="section">
+        <strong>[Step 4] Delta E 2000 Calculator (Manual)</strong>
+        <div class="controls">
+            <strong>Lab 1</strong> L: <input type="number" id="l1" step="0.01" style="width:60px"> a: <input type="number" id="a1" step="0.01" style="width:60px"> b: <input type="number" id="b1" step="0.01" style="width:60px">
+            <span style="margin: 0 10px;">vs</span>
+            <strong>Lab 2</strong> L: <input type="number" id="l2" step="0.01" style="width:60px"> a: <input type="number" id="a2" step="0.01" style="width:60px"> b: <input type="number" id="b2" step="0.01" style="width:60px">
+            <button class="btn-green" onclick="uiCalculateDeltaE()">Calculate Delta E</button>
+            <span id="de-result" style="font-weight:bold; color:#007bff; margin-left:10px; font-size: 1.1em;"></span>
+        </div>
+    </div>
+
+    <h4>Communication Log</h4>
+    <div id="log"></div>
+</div>
+
+<script>
+    let device;
+    let lastReceivedPacket = null;
+    let isUnlockedSuccess = false;
+
+    // Master keys from i1d3.c
+    const I1D3_CODES = [
+        { name: "Retail", keys: [0xe9622e9f, 0x8d63e133] },
+        { name: "Colormunki", keys: [0xe01e6e0a, 0x257462de] },
+        { name: "OEM", keys: [0xcaa62b2c, 0x30815b61] },
+        { name: "NEC", keys: [0xa9119479, 0x5b168761] },
+        { name: "Quato", keys: [0x160eb6ae, 0x14440e70] },
+        { name: "HP", keys: [0x291e41d7, 0x51937bdd] },
+        { name: "Wacom", keys: [0x1abfae03, 0xf25ac8e8] },
+        { name: "TPA", keys: [0x828c43e9, 0xcbb8a8ed] },
+        { name: "Barco", keys: [0xe8d1a980, 0xd146f7ad] },
+        { name: "Crysta", keys: [0x171ae295, 0x2e5c7664] },
+        { name: "Viewsonic", keys: [0x64d8c546, 0x4b24b4a7] }
+    ];
+
+    const MATRIX = [[0.035814, -0.021980, 0.016668], [0.014015, 0.016946, 0.000451], [-0.000407, 0.000830, 0.078830]]; //
+
+    // CIE Lab D50 Conversion
+    function calculateLabD50(X, Y, Z) {
+        const Xn = 96.42, Yn = 100.0, Zn = 82.49;
+        const f = (t) => (t > 0.008856) ? Math.pow(t, 1/3) : (7.787 * t + 16/116);
+        const fX = f(X / Xn), fY = f(Y / Yn), fZ = f(Z / Zn);
+        return { L: 116 * fY - 16, a: 500 * (fX - fY), b: 200 * (fY - fZ) };
+    }
+
+    // CIEDE2000 Algorithm
+    function calculateDeltaE2000(lab1, lab2) {
+        const deg2rad = (deg) => deg * (Math.PI / 180);
+        const rad2deg = (rad) => rad * (180 / Math.PI);
+        const L1 = lab1.L, a1 = lab1.a, b1 = lab1.b;
+        const L2 = lab2.L, a2 = lab2.a, b2 = lab2.b;
+        const C1 = Math.sqrt(a1 * a1 + b1 * b1);
+        const C2 = Math.sqrt(a2 * a2 + b2 * b2);
+        const C_avg = (C1 + C2) / 2;
+        const G = 0.5 * (1 - Math.sqrt(Math.pow(C_avg, 7) / (Math.pow(C_avg, 7) + Math.pow(25, 7))));
+        const a1p = (1 + G) * a1, a2p = (1 + G) * a2;
+        const C1p = Math.sqrt(a1p * a1p + b1 * b1), C2p = Math.sqrt(a2p * a2p + b2 * b2);
+        const h1p = rad2deg(Math.atan2(b1, a1p)) < 0 ? rad2deg(Math.atan2(b1, a1p)) + 360 : rad2deg(Math.atan2(b1, a1p));
+        const h2p = rad2deg(Math.atan2(b2, a2p)) < 0 ? rad2deg(Math.atan2(b2, a2p)) + 360 : rad2deg(Math.atan2(b2, a2p));
+        const dLp = L2 - L1, dCp = C2p - C1p;
+        let dhp = 0;
+        if (C1p * C2p !== 0) {
+            if (Math.abs(h2p - h1p) <= 180) dhp = h2p - h1p;
+            else if (h2p - h1p > 180) dhp = h2p - h1p - 360;
+            else if (h2p - h1p < -180) dhp = h2p - h1p + 360;
+        }
+        const dHp = 2 * Math.sqrt(C1p * C2p) * Math.sin(deg2rad(dhp / 2));
+        const Lp_avg = (L1 + L2) / 2, Cp_avg = (C1p + C2p) / 2;
+        let hp_avg = (h1p + h2p) / 2;
+        if (C1p * C2p !== 0 && Math.abs(h1p - h2p) > 180) hp_avg += (h1p + h2p < 360) ? 180 : -180;
+        const T = 1 - 0.17 * Math.cos(deg2rad(hp_avg - 30)) + 0.24 * Math.cos(deg2rad(2 * hp_avg)) + 0.32 * Math.cos(deg2rad(3 * hp_avg + 6)) - 0.20 * Math.cos(deg2rad(4 * hp_avg - 63));
+        const SL = 1 + (0.015 * Math.pow(Lp_avg - 50, 2)) / Math.sqrt(20 + Math.pow(Lp_avg - 50, 2));
+        const SC = 1 + 0.045 * Cp_avg, SH = 1 + 0.015 * Cp_avg * T;
+        const dTheta = 30 * Math.exp(-Math.pow((hp_avg - 275) / 25, 2));
+        const RC = 2 * Math.sqrt(Math.pow(Cp_avg, 7) / (Math.pow(Cp_avg, 7) + Math.pow(25, 7)));
+        const RT = -RC * Math.sin(deg2rad(2 * dTheta));
+        return Math.sqrt(Math.pow(dLp / SL, 2) + Math.pow(dCp / SC, 2) + Math.pow(dHp / SH, 2) + RT * (dCp / SC) * (dHp / SH));
+    }
+
+    function uiCalculateDeltaE() {
+        const lab1 = { L: parseFloat(document.getElementById('l1').value), a: parseFloat(document.getElementById('a1').value), b: parseFloat(document.getElementById('b1').value) };
+        const lab2 = { L: parseFloat(document.getElementById('l2').value), a: parseFloat(document.getElementById('a2').value), b: parseFloat(document.getElementById('b2').value) };
+        const result = calculateDeltaE2000(lab1, lab2);
+        document.getElementById('de-result').innerText = `dE2000: ${result.toFixed(4)}`;
+    }
+
+    document.getElementById('btn-connect').addEventListener('click', async () => {
+        try {
+            const devices = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x0765, productId: 0x5020 }] });
+            if (devices.length > 0) {
+                device = devices[0]; await device.open();
+                document.getElementById('status').innerText = "Status: " + device.productName + " Connected";
+                device.oninputreport = (e) => {
+                    const data = new Uint8Array(e.data.buffer);
+                    lastReceivedPacket = data; logResponse(data);
+                };
+                log("Device connected successfully", "sys");
+            }
+        } catch (err) { log("Error: " + err.message, "err"); }
+    });
+
+    async function runInitSequence() {
+        const cmds = ['00 01', '00 10', '00 11', '00 12', '10 00', '00 31', '00 13', '00 20'];
+        for (const cmd of cmds) { await sendHex(cmd); await new Promise(r => setTimeout(r, 200)); }
+    }
+
+    function logResponse(data) {
+        const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+        let ascii = Array.from(data).map(b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : ".").join('');
+        let interpretation = "";
+
+        if (data[1] === 0x04) {
+            const view = new DataView(data.buffer);
+            const rCnt = view.getUint32(2, true), gCnt = view.getUint32(6, true), bCnt = view.getUint32(10, true);
+            const rClk = view.getUint32(14, true), gClk = view.getUint32(18, true), bClk = view.getUint32(22, true);
+            const toHz = (cnt, clk) => (cnt <= 1) ? 0 : (cnt - 1) * 0.25 / (clk / 48000000);
+            const R = toHz(rCnt, rClk), G = toHz(gCnt, gClk), B = toHz(bCnt, bClk);
+            const X = (MATRIX[0][0] * R) + (MATRIX[0][1] * G) + (MATRIX[0][2] * B);
+            const Y = (MATRIX[1][0] * R) + (MATRIX[1][1] * G) + (MATRIX[1][2] * B);
+            const Z = (MATRIX[2][0] * R) + (MATRIX[2][1] * G) + (MATRIX[2][2] * B);
+            
+            const sum = X + Y + Z;
+            const cx = sum > 0 ? X / sum : 0, cy = sum > 0 ? Y / sum : 0;
+            const n = (cx - 0.3320) / (0.1858 - cy);
+            const cct = 449 * Math.pow(n, 3) + 3525 * Math.pow(n, 2) + 6823.3 * n + 5524.33;
+            const lab = calculateLabD50(X, Y, Z);
+
+            interpretation = ` <br><span class="xyz-val">[XYZ] X:${X.toFixed(3)}, Y:${Y.toFixed(3)}, Z:${Z.toFixed(3)}</span>` +
+                             `<br><span class="xyz-val">[CIE1931] x:${cx.toFixed(4)}, y:${cy.toFixed(4)}</span>` +
+                             `<br><span class="xyz-val">[CCT] ${sum > 0 ? Math.round(cct) + 'K' : 'N/A'} [Lab] L:${lab.L.toFixed(2)}, a:${lab.a.toFixed(2)}, b:${lab.b.toFixed(2)}</span>`;
+        } else {
+            if (data[1] === 0x20) interpretation = ` [Status: ${data[2] === 0 ? 'Unlocked' : 'Locked'}]`;
+            if (data[1] === 0x9A && data[2] === 0x77) { interpretation = " [Status: Unlock Successful! (Code 77)]"; isUnlockedSuccess = true; }
+        }
+        const logEl = document.getElementById('log');
+        logEl.innerHTML += `<div style="margin-bottom:5px;"><span class="log-in"><< [RECV]</span> ${hex}<br><small style="color:#aaa;">TXT: ${ascii}</small><span class="interpretation">${interpretation}</span></div>`;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    async function sendHex(hexStr) {
+        if (!device) return;
+        const bytes = hexStr.replace(/\s+/g, '').match(/.{1,2}/g).map(h => parseInt(h, 16));
+        const report = new Uint8Array(64); report.set(bytes);
+        await device.sendReport(0, report);
+        log(`>> [SEND] ${hexStr}`, "out");
+    }
+
+    async function autoFindUnlock() {
+        if (!device) return alert("Connect device first");
+        isUnlockedSuccess = false; log("Starting Auto-Unlock sequence...", "sys");
+        for (let i = 0; i < I1D3_CODES.length; i++) {
+            log(`[Attempt ${i+1}/11] Testing ${I1D3_CODES[i].name} key...`, "sys");
+            await sendHex('99 00'); await new Promise(r => setTimeout(r, 400));
+            if (lastReceivedPacket && lastReceivedPacket[1] === 0x99) { executeUnlock(I1D3_CODES[i].keys); await new Promise(r => setTimeout(r, 400)); }
+            if (isUnlockedSuccess) break;
+        }
+    }
+
+    function executeUnlock(k = I1D3_CODES[2].keys) {
+        if (!lastReceivedPacket || lastReceivedPacket[1] !== 0x99) return;
+        const c = lastReceivedPacket;
+        let sc = new Uint8Array(8); for (let i = 0; i < 8; i++) sc[i] = (c[3] ^ c[35 + i]) & 0xFF;
+        let ci0 = ((sc[3] << 24) | (sc[0] << 16) | (sc[4] << 8) | sc[6]) >>> 0, ci1 = ((sc[1] << 24) | (sc[7] << 16) | (sc[2] << 8) | sc[5]) >>> 0;
+        const nK0 = (~k[0] + 1) >>> 0, nK1 = (~k[1] + 1) >>> 0;
+        let co = [(nK0 - ci1) >>> 0, (nK1 - ci0) >>> 0, Math.imul(ci1, nK0) >>> 0, Math.imul(ci0, nK1) >>> 0];
+        let sum = 0; for (let b of sc) sum += b;
+        const kS = (v) => ((v & 0xFF) + ((v >>> 8) & 0xFF) + ((v >>> 16) & 0xFF) + ((v >>> 24) & 0xFF));
+        sum += kS(nK0) + kS(nK1);
+        let s0 = sum & 0xFF, s1 = (sum >>> 8) & 0xFF;
+        let sr = new Uint8Array(16);
+        sr[0] = ((co[0] >>> 16) & 0xFF) + s0; sr[1] = ((co[2] >>> 8) & 0xFF) - s1; sr[2] = (co[3] & 0xFF) + s1; sr[3] = ((co[1] >>> 16) & 0xFF) + s0;
+        sr[4] = ((co[2] >>> 16) & 0xFF) - s1; sr[5] = ((co[3] >>> 16) & 0xFF) - s0; sr[6] = ((co[1] >>> 24) & 0xFF) - s0; sr[7] = (co[0] & 0xFF) - s1;
+        sr[8] = ((co[3] >>> 8) & 0xFF) + s0; sr[9] = ((co[2] >>> 24) & 0xFF) - s1; sr[10] = ((co[0] >>> 8) & 0xFF) + s0; sr[11] = ((co[1] >>> 8) & 0xFF) - s1;
+        sr[12] = (co[1] & 0xFF) + s1; sr[13] = ((co[3] >>> 24) & 0xFF) + s1; sr[14] = (co[2] & 0xFF) + s0; sr[15] = ((co[0] >>> 24) & 0xFF) - s0;
+        let report = new Uint8Array(64); report[0] = 0x9A; const xKey = c[2];
+        for (let i = 0; i < 16; i++) report[24 + i] = (xKey ^ sr[i]) & 0xFF;
+        device.sendReport(0, report);
+    }
+
+    function log(msg, type) {
+        const logEl = document.getElementById('log');
+        let color = (type === "out") ? "#ce9178" : (type === "err" ? "#f44747" : "#4ec9b0");
+        logEl.innerHTML += `<div style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+</script>
+</body>
+</html>
