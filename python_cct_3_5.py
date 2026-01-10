@@ -1,3 +1,10 @@
+<<<<<<< HEAD
+=======
+# 필요 모듈 설치 가이드:
+# pip install matplotlib numpy
+# macOS 사용 시 Tkinter 이슈 발생 시: brew install python-tk@3.12
+
+>>>>>>> 1019339 (feat: Add initial color temperature calibration simulator using Jacobian-based predictive control)
 import tkinter as tk
 import matplotlib
 matplotlib.use('TkAgg')
