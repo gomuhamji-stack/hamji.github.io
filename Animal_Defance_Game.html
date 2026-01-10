@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>궁수 게임</title>
+    <style>
+        body { display: flex; flex-direction: column; align-items: center; background: lightblue; font-family: Arial, sans-serif; }
+        #game-container { position: relative; width: 700px; height: 200px; background: white; overflow: hidden; border: 2px solid black; }
+        .animal { position: absolute; top: 100px; transform: translateY(-50%); }
+        .archer { position: absolute; left: 670px; top: 100px; transform: translateY(-50%); font-size: 30px; }
+        .arrow { position: absolute; width: 10px; height: 5px; background: red; }
+        #scoreboard, #speed-controls { font-size: 20px; margin: 10px; }
+    </style>
+</head>
+<body>
+    <div id="scoreboard">점수: <span id="score">0</span></div>
+    <div id="scoreboard"> 화살 쏘기 'a' 또는 'A' 또는 'space  bar'</div>
+    <div id="speed-controls">
+        동물 출현 속도:
+        <label><input type="radio" name="speed" value="5000"> 1단계</label>
+        <label><input type="radio" name="speed" value="4000"> 2단계</label>
+        <label><input type="radio" name="speed" value="3000"> 3단계</label>
+        <label><input type="radio" name="speed" value="2000"> 4단계</label>
+        <label><input type="radio" name="speed" value="1000" checked> 5단계</label>
+    </div>
+
+    <div id="game-container">
+        <div class="archer">🏹</div>
+    </div>
+    
+    <audio id="shoot-sound" src="Shoot Arrow Sound.mp3"></audio>
+    <audio id="boom-sound" src="Boom Short.mp3"></audio>
+
+    <script>
+        const gameContainer = document.getElementById("game-container");
+        const scoreDisplay = document.getElementById("score");
+        const shootSound = document.getElementById("shoot-sound");
+        const boomSound = document.getElementById("boom-sound");
+
+        let score = 0;
+        let spawnInterval = 1000; // 기본: 1초 (5단계)
+        let spawnTimer;
+
+        const animals = [];
+        const arrows = [];
+        const explosionEmoji = "💥";
+        const animalEmojis = ["🐰", "🐻", "🐭", "🦊", "🐸"];
+        const sizes = [10, 20, 30];
+
+        const archer = { x: 700, y: 100 };
+        const animalSpeed = 30 / 10;
+        const arrowSpeed = 50 / 10;
+        const attackPower = 10;
+        const frameRate = 100;
+
+        function spawnAnimal() {
+            const animal = document.createElement("div");
+            animal.classList.add("animal");
+            animal.innerHTML = animalEmojis[Math.floor(Math.random() * animalEmojis.length)];
+            const size = sizes[Math.floor(Math.random() * sizes.length)];
+            animal.style.fontSize = `${size}px`;
+            animal.style.left = "0px";
+            animal.dataset.health = size;
+            gameContainer.appendChild(animal);
+            animals.push(animal);
+
+            // 60초(60000ms) 후 자동 삭제
+            setTimeout(() => {
+                if (animals.includes(animal)) {
+                    animal.remove();
+                    animals.splice(animals.indexOf(animal), 1);
+                }
+            }, 60000);
+        }
+
+        function moveAnimals() {
+            animals.forEach((animal, index) => {
+                let x = parseFloat(animal.style.left);
+                x += animalSpeed;
+                animal.style.left = `${x}px`;
+
+                if (x > 700) {
+                    animal.remove();
+                    if (animals.includes(animal)) {
+                        animals.splice(index, 1);
+                    }
+                }
+            });
+        }
+
+        function fireArrow() {
+            const arrow = document.createElement("div");
+            arrow.classList.add("arrow");
+            arrow.style.left = `${archer.x - 30}px`;
+            arrow.style.top = `${archer.y}px`;
+            gameContainer.appendChild(arrow);
+            arrows.push(arrow);
+
+            shootSound.currentTime = 0;
+            shootSound.play();
+        }
+
+        function moveArrows() {
+            arrows.forEach((arrow, arrowIndex) => {
+                let x = parseFloat(arrow.style.left);
+                x -= arrowSpeed;
+                arrow.style.left = `${x}px`;
+
+                animals.forEach((animal, animalIndex) => {
+                    let animalX = parseFloat(animal.style.left);
+                    if (Math.abs(x - animalX) < 10) {
+                        let health = parseInt(animal.dataset.health) - attackPower;
+                        animal.dataset.health = health;
+                        arrow.remove();
+                        arrows.splice(arrowIndex, 1);
+
+                        if (health <= 0) {
+                            animal.innerHTML = explosionEmoji;
+                            score += parseInt(animal.style.fontSize);
+                            scoreDisplay.textContent = score;
+
+                            boomSound.currentTime = 0;
+                            boomSound.play();
+
+                            setTimeout(() => {
+                                animal.remove();
+                                if (animals.includes(animal)) {
+                                    animals.splice(animalIndex, 1);
+                                }
+                            }, 500);
+                        }
+                    }
+                });
+
+                if (x < 0) {
+                    arrow.remove();
+                    arrows.splice(arrowIndex, 1);
+                }
+            });
+        }
+
+        document.addEventListener("keydown", event => {
+            if (event.key === "a" ||
+                event.key === "A" ||
+                event.key === " "  ) {
+                fireArrow();
+            }
+        });
+
+        setInterval(() => {
+            moveAnimals();
+            moveArrows();
+        }, frameRate);
+
+        function updateSpawnRate() {
+            clearInterval(spawnTimer);
+            spawnTimer = setInterval(spawnAnimal, spawnInterval);
+        }
+
+        document.querySelectorAll("input[name='speed']").forEach(input => {
+            input.addEventListener("change", event => {
+                spawnInterval = parseInt(event.target.value);
+                updateSpawnRate();
+            });
+        });
+
+        updateSpawnRate();
+    </script>
+</body>
+</html>
