@@ -7,25 +7,161 @@ from datetime import datetime
 # --- Mathematical Engines ---
 
 def xyY_to_XYZ(x, y, Y):
-    if y == 0: return [0, 0, 0]
+    """
+    Convert xyY color coordinates to XYZ tristimulus values.
+    
+    Args:
+        x, y: Chromaticity coordinates
+        Y: Luminance
+    
+    Returns:
+        [X, Y, Z]: Tristimulus values
+    """
+    if y == 0 or Y < 0:
+        return [0.0, 0.0, 0.0]
     X = (x * Y) / y
     Z = ((1.0 - x - y) * Y) / y
     return [X, Y, Z]
 
+def validate_xyY(x, y, Y):
+    """
+    Validate xyY color coordinates.
+    
+    Args:
+        x, y: Chromaticity coordinates
+        Y: Luminance
+    
+    Returns:
+        bool: True if valid
+    """
+    return 0 <= x <= 1 and 0 <= y <= 1 and x + y <= 1 and Y >= 0
+
 def xyz_to_lab(X, Y, Z):
+    """
+    Convert XYZ to CIE Lab color space using D65 reference white.
+    
+    Args:
+        X, Y, Z: Tristimulus values
+    
+    Returns:
+        (L*, a*, b*): Lab coordinates
+    """
     # D65 Reference White (Xn, Yn, Zn)
     Xn, Yn, Zn = 95.047, 100.0, 108.883
+    
     def f(t):
         return t**(1/3) if t > 0.008856 else (7.787 * t) + (16/116)
-    fx, fy, fz = f(X/Xn), f(Y/Yn), f(Z/Zn)
-    return (116 * fy) - 16, 500 * (fx - fy), 200 * (fy - fz)
+    
+    xr, yr, zr = X/Xn, Y/Yn, Z/Zn
+    fx, fy, fz = f(xr), f(yr), f(zr)
+    
+    L = 116 * fy - 16
+    a = 500 * (fx - fy)
+    b = 200 * (fy - fz)
+    
+    return L, a, b
 
 def delta_e_2000(XYZ1, XYZ2):
-    """Simplified Delta E calculation for Lab space"""
-    L1, a1, b1 = xyz_to_lab(*XYZ1)
-    L2, a2, b2 = xyz_to_lab(*XYZ2)
-    dL, da, db = L2 - L1, a2 - a1, b2 - b1
-    return np.sqrt(dL**2 + da**2 + db**2)
+    """
+    Calculate CIE Delta E 2000 color difference.
+    
+    This implements the full CIEDE2000 formula with parametric weighting
+    factors, hue rotation terms, and compensation for lightness differences.
+    
+    Args:
+        XYZ1, XYZ2: Arrays of [X, Y, Z] tristimulus values
+    
+    Returns:
+        float: Delta E 2000 value
+    """
+    Lab1 = xyz_to_lab(*XYZ1)
+    Lab2 = xyz_to_lab(*XYZ2)
+    
+    L1, a1, b1 = Lab1
+    L2, a2, b2 = Lab2
+    
+    # Parametric weighting factors
+    kL = 1.0  # Lightness
+    kC = 1.0  # Chroma
+    kH = 1.0  # Hue
+    
+    # Calculate C (chroma) and h (hue angle)
+    C1 = np.sqrt(a1**2 + b1**2)
+    C2 = np.sqrt(a2**2 + b2**2)
+    
+    C_avg = (C1 + C2) / 2
+    
+    if C1 * C2 == 0:
+        h1 = 0
+        h2 = 0
+    else:
+        h1 = np.degrees(np.arctan2(b1, a1)) % 360
+        h2 = np.degrees(np.arctan2(b2, a2)) % 360
+    
+    h_avg = (h1 + h2) / 2
+    
+    # Hue difference
+    if abs(h1 - h2) <= 180:
+        dh = h2 - h1
+    else:
+        dh = h2 - h1 + 360 if h2 <= h1 else h2 - h1 - 360
+    
+    dH = 2 * np.sqrt(C1 * C2) * np.sin(np.radians(dh) / 2)
+    
+    # Lightness difference
+    dL = L2 - L1
+    
+    # Chroma difference
+    dC = C2 - C1
+    
+    # Calculate CIEDE2000
+    L_avg = (L1 + L2) / 2
+    C_avg7 = C_avg**7
+    G = 0.5 * (1 - np.sqrt(C_avg7 / (C_avg7 + 25**7)))
+    
+    a1_prime = a1 * (1 + G)
+    a2_prime = a2 * (1 + G)
+    
+    C1_prime = np.sqrt(a1_prime**2 + b1**2)
+    C2_prime = np.sqrt(a2_prime**2 + b2**2)
+    C_avg_prime = (C1_prime + C2_prime) / 2
+    
+    if C1_prime * C2_prime == 0:
+        h1_prime = 0
+        h2_prime = 0
+    else:
+        h1_prime = np.degrees(np.arctan2(b1, a1_prime)) % 360
+        h2_prime = np.degrees(np.arctan2(b2, a2_prime)) % 360
+    
+    h_avg_prime = (h1_prime + h2_prime) / 2
+    
+    if abs(h1_prime - h2_prime) <= 180:
+        dh_prime = h2_prime - h1_prime
+    else:
+        dh_prime = h2_prime - h1_prime + 360 if h2_prime <= h1_prime else h2_prime - h1_prime - 360
+    
+    dH_prime = 2 * np.sqrt(C1_prime * C2_prime) * np.sin(np.radians(dh_prime) / 2)
+    
+    # Weighting functions
+    T = (1 - 0.17 * np.cos(np.radians(h_avg_prime - 30)) + 
+         0.24 * np.cos(np.radians(2 * h_avg_prime)) +
+         0.32 * np.cos(np.radians(3 * h_avg_prime + 6)) -
+         0.20 * np.cos(np.radians(4 * h_avg_prime - 63)))
+    
+    SL = 1 + (0.015 * (L_avg - 50)**2) / np.sqrt(20 + (L_avg - 50)**2)
+    SC = 1 + 0.045 * C_avg_prime
+    SH = 1 + 0.015 * C_avg_prime * T
+    
+    RT = (-np.sin(np.radians(2 * 60 * np.exp(-((h_avg_prime - 275) / 25)**2)))) * (2 * np.sqrt(C_avg_prime**7 / (C_avg_prime**7 + 25**7)))
+    
+    # Final calculation
+    term_L = dL / (kL * SL)
+    term_C = dC / (kC * SC)
+    term_H = dH_prime / (kH * SH)
+    
+    delta_E = np.sqrt(term_L**2 + term_C**2 + term_H**2 + RT * term_C * term_H)
+    
+    return delta_E
 
 # --- GUI Logic Functions ---
 
@@ -34,6 +170,10 @@ def log_message(message):
     log_area.see(tk.END)
 
 def calculate_fcmm():
+    """
+    Calculate Forward Color Matrix Model (FCMM) correction matrix.
+    Validates input data and computes 3x3 correction matrix.
+    """
     try:
         data = {}
         for dev in ['ref', 'sens']:
@@ -42,6 +182,12 @@ def calculate_fcmm():
                 x = float(entries[f"{dev}_{c}_x"].get())
                 y = float(entries[f"{dev}_{c}_y"].get())
                 Y = float(entries[f"{dev}_{c}_Y"].get())
+                
+                # Validate xyY values
+                if not validate_xyY(x, y, Y):
+                    log_message(f"[Error] Invalid xyY values for {dev} {c}: x={x}, y={y}, Y={Y}")
+                    return
+                
                 cols.append(xyY_to_XYZ(x, y, Y))
             data[dev] = np.array(cols).T
         
@@ -51,17 +197,33 @@ def calculate_fcmm():
         log_message("--- 3x3 Sensor Correction Matrix ---")
         log_message(np.array2string(m_corr, separator=', ', precision=6))
         log_message("------------------------------------")
+    except ValueError as e:
+        log_message(f"[Error] Invalid input values: {e}")
+    except np.linalg.LinAlgError as e:
+        log_message(f"[Error] Matrix inversion failed: {e}")
     except Exception as e:
         log_message(f"[Error] Matrix Calculation Failed: {e}")
 
 def calculate_de2000():
+    """
+    Calculate CIE Delta E 2000 color difference between two XYZ measurements.
+    Includes input validation for XYZ tristimulus values.
+    """
     try:
         s_xyz = [float(entries[f"de_sens_{i}"].get()) for i in ['X', 'Y', 'Z']]
         r_xyz = [float(entries[f"de_ref_{i}"].get()) for i in ['X', 'Y', 'Z']]
+        
+        # Basic validation for XYZ (should be non-negative)
+        if any(x < 0 for x in s_xyz + r_xyz):
+            log_message("[Error] XYZ values must be non-negative")
+            return
+        
         de_val = delta_e_2000(s_xyz, r_xyz)
         
-        de_result_label.config(text=f"Delta E Result: {de_val:.4f}", fg="blue")
-        log_message(f"Delta E 2000 Calculated: {de_val:.4f}")
+        de_result_label.config(text=f"Delta E 2000 Result: {de_val:.4f}", fg="blue")
+        log_message(f"CIE Delta E 2000 Calculated: {de_val:.4f}")
+    except ValueError as e:
+        log_message(f"[Error] Invalid XYZ input values: {e}")
     except Exception as e:
         log_message(f"[Error] Delta E Calculation Failed: {e}")
 
@@ -76,7 +238,7 @@ root.title("Display Calibration Tool")
 root.geometry("550x850")
 
 # 0. Version Info (Top Left)
-version_str = datetime.now().strftime("%Y_%m_%d_%H_%M")
+version_str = "1.1.0"  # Static version for reproducibility
 tk.Label(root, text=f"SW Version: {version_str}", font=('Arial', 8)).pack(anchor="nw", padx=10)
 
 entries = {}
@@ -100,9 +262,12 @@ def create_input_table(parent, title, prefix, row_offset):
             key = f"{prefix}_{color}_{axis}"
             entries[key] = tk.Entry(parent, width=10)
             entries[key].grid(row=row_offset+1+i, column=j+1, padx=3, pady=2)
-            # Dummy data insertion
+            # Insert realistic dummy data with typical sensor variations
             val = float(dummy_rgb[color][j])
-            if prefix == "sens": val *= 1.03
+            if prefix == "sens":
+                # Simulate realistic sensor measurement variations (±2-5%)
+                variation = np.random.uniform(0.98, 1.05) if axis == 'Y' else np.random.uniform(0.995, 1.008)
+                val *= variation
             entries[key].insert(0, f"{val:.3f}")
 
 create_input_table(fcmm_frame, "Reference Data (CA-210)", "ref", 0)
