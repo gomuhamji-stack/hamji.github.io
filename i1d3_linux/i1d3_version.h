@@ -1,0 +1,14 @@
+#ifndef I1D3_VERSION_H
+#define I1D3_VERSION_H
+
+#define I1D3_VERSION_MAJOR 1
+#define I1D3_VERSION_MINOR 0
+#define I1D3_VERSION_PATCH 0
+#define I1D3_VERSION_STRING "1.0.0"
+
+#define I1D3_VERSION_CHECK(major, minor, patch) \
+    (((major) << 16) | ((minor) << 8) | (patch))
+
+#define I1D3_VERSION I1D3_VERSION_CHECK(I1D3_VERSION_MAJOR, I1D3_VERSION_MINOR, I1D3_VERSION_PATCH)
+
+#endif /* I1D3_VERSION_H */
