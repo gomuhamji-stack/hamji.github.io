@@ -71,6 +71,10 @@ static const i1d3_key_entry I1D3_CODES[] = {
 };
 
 // Emissive Matrix from user log
+// NOTE: This matrix must be calibrated for each sensor unit using i1d3_sensor_calibration.py
+// The calibration procedure requires simultaneous measurements with a reference standard sensor.
+// Update these values with the FCMM (Forward Color Matrix Model) output from the Python calibration tool.
+// See README.md "Sensor Calibration Matrix" section for detailed instructions.
 static const double MATRIX[3][3] = {
     {0.035814, -0.021980, 0.016668},
     {0.014015, 0.016946, 0.000451},

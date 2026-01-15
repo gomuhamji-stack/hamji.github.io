@@ -163,12 +163,41 @@ sudo chmod 666 /dev/hidraw0
 - **CCT**: Calculated using McCamy's approximation
 - **Lab**: CIE Lab with D50 white point
 
+### Sensor Calibration Matrix
+
+The MATRIX constant in `i1d3.c` is a 3×3 correction matrix used to transform raw RGB sensor readings into standardized XYZ color coordinates. This matrix is **sensor-specific** and must be calibrated for each i1Display3 device to achieve accurate measurements.
+
+#### Generating the Calibration Matrix
+
+To generate or update the calibration matrix:
+
+1. Use the `i1d3_sensor_calibration.py` Python utility (located in the parent project directory)
+2. Perform simultaneous measurements with:
+   - The i1Display3 sensor (to be calibrated)
+   - A reference standard sensor (e.g., CA-210, i1Pro, or Konica Minolta CL-70F)
+3. Measure color primaries (R, G, B) and white point for both sensors
+4. The Python tool calculates the optimal correction matrix using least-squares fitting
+5. Update the MATRIX values in `i1d3.c` with the calculated coefficients
+6. Recompile the library with `make`
+
+#### Matrix Format
+
+```c
+static const double MATRIX[3][3] = {
+    {m00, m01, m02},  // Converts to X coordinate
+    {m10, m11, m12},  // Converts to Y coordinate
+    {m20, m21, m22}   // Converts to Z coordinate
+};
+```
+
+Each element represents the contribution of sensor R, G, B channels to the corresponding XYZ coordinate.
+
 ### Measurement Process
 1. Send measurement command with 200ms integration time
 2. Receive raw sensor data (RGB counts and clock values)
 3. Convert to frequency domain using calibration matrix
-4. Transform to XYZ color space
-5. Calculate derived color coordinates
+4. Transform to XYZ color space (using MATRIX)
+5. Calculate derived color coordinates (xy, CCT, Lab)
 
 ## Version History
 
