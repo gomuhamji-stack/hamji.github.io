@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>GoodHabit Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #007bff; --success: #2da44e; --fail: #cf222e; --bg: #f6f8fa; --border: #d0d7de; }
+        body { font-family: sans-serif; background: var(--bg); margin: 0; display: flex; height: 100vh; font-size: 12px; }
+        
+        /* 1. 사이드바 구성 (메뉴 + 차트 통합) */
+        #sidebar { 
+            width: 160px; /* 차트 가독성을 위해 약간 조정 */
+            background: #fff; 
+            border-right: 1px solid var(--border); 
+            padding: 10px; 
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        #main-content { flex: 1; padding: 15px; display: flex; overflow-y: auto; }
+        
+        .card { background: white; border-radius: 6px; border: 1px solid var(--border); padding: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .table-container { width: 100%; overflow-x: auto; }
+        
+        /* 2. 테이블 및 줄간격 최소화 */
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { 
+            padding: 2px; 
+            border-bottom: 1px solid #f0f0f0; 
+            height: 24px; /* 줄간격 최소화 */
+            vertical-align: middle; 
+            text-align: center;
+            overflow: hidden;
+        }
+        th { background: white; font-size: 11px; border-bottom: 2px solid var(--border); }
+        
+        /* 3. 습관 칼럼 고정 너비 (브라우저 확장 시에도 유지) */
+        .col-date { width: 50px; }
+        .col-habit { width: 35px; } /* 습관 박스 사이 간격 최소화 */
+        .col-diary { width: auto; } /* 남는 공간 몰아주기 */
+
+        .sat { color: #0099ff; font-weight: bold; }
+        .sun { color: #ff8c00; font-weight: bold; }
+        tr.today { background-color: #fffbe6; outline: 1px solid #ffe58f; }
+
+        .habit-box { 
+            width: 18px; height: 18px; 
+            border: 1px solid var(--border); border-radius: 3px; 
+            cursor: pointer; display: flex; align-items: center; justify-content: center; 
+            margin: 0 auto; font-size: 10px; 
+        }
+        .habit-box.done { background: var(--success); color: white; border-color: var(--success); }
+        .habit-box.fail { color: var(--fail); font-weight: bold; }
+
+        .diary-input { width: 98%; border: 1px solid transparent; padding: 2px; font-size: 12px; outline: none; }
+        .diary-input:focus { border-bottom: 1px solid var(--primary); }
+        
+        /* 습관 이름 입력칸 최소화 */
+        .habit-name-input { 
+            width: 30px; border: none; font-weight: bold; text-align: center; 
+            font-size: 10px; background: #f0f0f0; border-radius: 2px; 
+        }
+
+        .month-item { padding: 6px; cursor: pointer; border-radius: 4px; margin-bottom: 2px; font-size: 11px; text-align: center; }
+        .month-item.active { background: var(--primary); color: white; }
+
+        #toast { 
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); 
+            background: rgba(0,0,0,0.7); color: white; padding: 6px 12px; border-radius: 15px; 
+            display: none; font-size: 11px; z-index: 1000; 
+        }
+        
+        .sidebar-chart { width: 100%; margin-top: auto; }
+        .sidebar-chart h3 { font-size: 11px; margin-bottom: 5px; color: #666; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div id="toast">저장되었습니다</div>
+
+<div id="sidebar">
+    <div>
+        <h3 style="margin-top:0; font-size: 12px; color: #333;">📁 월간 기록</h3>
+        <div id="month-list"></div>
+    </div>
+    
+    <div class="sidebar-chart">
+        <h3>📊 밸런스</h3>
+        <canvas id="radarChart"></canvas>
+    </div>
+</div>
+
+<div id="main-content">
+    <div class="card table-container">
+        <h2 id="current-month-title" style="margin: 0 0 10px 0; font-size: 15px;">2026년 01월</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th class="col-date">날짜</th>
+                    <th class="col-habit"><input class="habit-name-input" id="name-h1" onchange="updateHabitName('h1_name', this.value)"></th>
+                    <th class="col-habit"><input class="habit-name-input" id="name-h2" onchange="updateHabitName('h2_name', this.value)"></th>
+                    <th class="col-habit"><input class="habit-name-input" id="name-h3" onchange="updateHabitName('h3_name', this.value)"></th>
+                    <th class="col-diary">한 줄 일기</th>
+                </tr>
+            </thead>
+            <tbody id="habit-table-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    let currentMonth = new Date().toISOString().slice(0, 7);
+    let habitData = {};
+    let settings = {};
+    let radarChart = null;
+
+    window.onload = async () => {
+        await loadMonthList();
+        await loadAllData(currentMonth);
+    };
+
+    async function loadAllData(yearMonth) {
+        const res = await fetch(`/api/get_all_data/${yearMonth}`);
+        const data = await res.json();
+        habitData = {};
+        data.habits.forEach(item => { habitData[item.date] = item; });
+        settings = data.settings;
+        
+        document.getElementById('name-h1').value = settings.h1_name;
+        document.getElementById('name-h2').value = settings.h2_name;
+        document.getElementById('name-h3').value = settings.h3_name;
+        
+        document.getElementById('current-month-title').innerText = yearMonth.replace('-', '년 ') + '월';
+        renderTable(yearMonth);
+        updateChart();
+    }
+
+    async function loadMonthList() {
+        const res = await fetch('/api/get_months');
+        const months = await res.json();
+        if (!months.includes(currentMonth)) months.unshift(currentMonth);
+        const list = document.getElementById('month-list');
+        list.innerHTML = '';
+        months.forEach(m => {
+            const div = document.createElement('div');
+            div.className = `month-item ${m === currentMonth ? 'active' : ''}`;
+            div.innerText = m.replace('-', '/') + '월';
+            div.onclick = () => { currentMonth = m; loadAllData(m); 
+                document.querySelectorAll('.month-item').forEach(el => el.classList.remove('active'));
+                div.classList.add('active');
+            };
+            list.appendChild(div);
+        });
+    }
+
+    function renderTable(yearMonth) {
+        const tbody = document.getElementById('habit-table-body');
+        tbody.innerHTML = '';
+        const [year, month] = yearMonth.split('-').map(Number);
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const todayStr = new Date().toLocaleDateString('sv-SE');
+
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateObj = new Date(year, month - 1, d);
+            const dayOfWeek = dateObj.getDay(); 
+            const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const dayData = habitData[dateStr] || { habit1: 0, habit2: 0, habit3: 0, diary: '' };
+            
+            const tr = document.createElement('tr');
+            if (dateStr === todayStr) tr.className = 'today';
+
+            let dayClass = '';
+            if (dayOfWeek === 6) dayClass = 'sat';
+            if (dayOfWeek === 0) dayClass = 'sun';
+
+            tr.innerHTML = `
+                <td class="${dayClass}">${month}/${d}</td>
+                <td><div class="habit-box ${dayData.habit1==1?'done':dayData.habit1==2?'fail':''}" onclick="toggleHabit('${dateStr}',1)">${dayData.habit1==2?'X':''}</div></td>
+                <td><div class="habit-box ${dayData.habit2==1?'done':dayData.habit2==2?'fail':''}" onclick="toggleHabit('${dateStr}',2)">${dayData.habit2==2?'X':''}</div></td>
+                <td><div class="habit-box ${dayData.habit3==1?'done':dayData.habit3==2?'fail':''}" onclick="toggleHabit('${dateStr}',3)">${dayData.habit3==2?'X':''}</div></td>
+                <td><input type="text" class="diary-input" value="${dayData.diary}" onchange="saveDiary('${dateStr}', this.value)"></td>
+            `;
+            tbody.appendChild(tr);
+            if (dateStr === todayStr) tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+
+    async function toggleHabit(date, num) {
+        if (!habitData[date]) habitData[date] = { date, habit1:0, habit2:0, habit3:0, diary:'' };
+        habitData[date][`habit${num}`] = (habitData[date][`habit${num}`] + 1) % 3;
+        await save(habitData[date]);
+        renderTable(currentMonth);
+        updateChart();
+    }
+
+    async function saveDiary(date, text) {
+        if (!habitData[date]) habitData[date] = { date, habit1:0, habit2:0, habit3:0, diary:'' };
+        habitData[date].diary = text;
+        await save(habitData[date]);
+        updateChart();
+    }
+
+    async function updateHabitName(key, value) {
+        await fetch('/api/save_setting', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key, value })
+        });
+        showToast();
+        updateChart();
+    }
+
+    async function save(data) {
+        await fetch('/api/save_habit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        showToast();
+    }
+
+    function showToast() {
+        const t = document.getElementById('toast');
+        t.style.display = 'block';
+        setTimeout(() => { t.style.display = 'none'; }, 1000);
+    }
+
+    function updateChart() {
+        const values = Object.values(habitData);
+        const calc = (num) => (values.filter(v => v[`habit${num}`] === 1).length / 31) * 100;
+        const dRate = (values.filter(v => v.diary.length > 0).length / 31) * 100;
+        const dataSet = [calc(1), calc(2), calc(3), dRate, 70];
+
+        const labels = [
+            document.getElementById('name-h1').value,
+            document.getElementById('name-h2').value,
+            document.getElementById('name-h3').value,
+            '일기', '지속성'
+        ];
+
+        if (radarChart) {
+            radarChart.data.labels = labels;
+            radarChart.data.datasets[0].data = dataSet;
+            radarChart.update();
+        } else {
+            const ctx = document.getElementById('radarChart');
+            radarChart = new Chart(ctx, { 
+                type: 'radar', 
+                data: {
+                    labels: labels,
+                    datasets: [{ label: '달성도', data: dataSet, backgroundColor: 'rgba(0,123,255,0.1)', borderColor: '#007bff', pointRadius: 1 }]
+                }, 
+                options: { 
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: { r: { suggestedMin: 0, suggestedMax: 100, ticks: { display: false } } }, 
+                    plugins: { legend: { display: false } } 
+                } 
+            });
+        }
+    }
+</script>
+</body>
+</html>
