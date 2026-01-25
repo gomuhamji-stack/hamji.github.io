@@ -2,102 +2,88 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>GoodHabit Tracker v3.5</title>
+    <title>GoodHabit Grid v4.7</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root { --primary: #007bff; --success: #2da44e; --fail: #cf222e; --bg: #f6f8fa; --border: #d0d7de; }
-        body { font-family: sans-serif; background: var(--bg); margin: 0; display: flex; height: 100vh; font-size: 12px; }
-        
-        #sidebar { width: 170px; background: #fff; border-right: 1px solid var(--border); padding: 10px; flex-shrink: 0; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
-        #main-content { flex: 1; padding: 15px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
-        
-        .card { background: white; border-radius: 6px; border: 1px solid var(--border); padding: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-        .table-container { width: 100%; }
-        
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid #eee; padding: 3px; text-align: center; height: 26px; }
-        th { background: #f8f9fa; font-size: 11px; }
-        
-        .col-date { width: 45px; } .col-habit { width: 35px; }
-        .sat { color: #0099ff; font-weight: bold; } .sun { color: #ff8c00; font-weight: bold; }
-        tr.today { background-color: #fffbe6; outline: 1px solid #ffe58f; }
-
-        .habit-box { width: 18px; height: 18px; border: 1px solid var(--border); border-radius: 3px; cursor: pointer; display: flex; align-items: center; justify-content: center; margin: 0 auto; font-size: 10px; }
-        .habit-box.done { background: var(--success); color: white; border-color: var(--success); }
-        .habit-box.fail { color: var(--fail); font-weight: bold; }
-
-        .diary-input { width: 95%; border: none; padding: 2px; font-size: 12px; outline: none; background: transparent; }
-        .habit-name-input { width: 30px; border: none; font-weight: bold; text-align: center; font-size: 10px; background: #f0f0f0; border-radius: 2px; }
-
-        /* 월말 총평 모달 스타일 */
-        #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 2000; }
-        .modal-card { background: white; padding: 25px; border-radius: 12px; width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
-        #report-text { width: 100%; height: 100px; margin: 15px 0; padding: 10px; border: 1px solid var(--border); border-radius: 6px; resize: none; font-size: 13px; }
-        .btn-save { background: var(--primary); color: white; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
-
-        /* 하단 총평 표시 영역 */
-        #report-display-area { margin-top: 10px; background: #eef6ff; border: 1px solid #cce3ff; display: none; }
-        #report-display-area h4 { margin: 0 0 5px 0; color: var(--primary); font-size: 13px; }
-
-        /* 미니 달력 */
-        .mini-cal { width: 100%; border-collapse: collapse; font-size: 10px; }
-        .mini-cal th, .mini-cal td { border: none; padding: 1px; height: 18px; width: 14.2%; }
-        .cal-day-cell { border-radius: 2px; display: block; width: 100%; height: 100%; line-height: 18px; text-align: center; }
+        :root { --primary: #007bff; --success: #2da44e; --fail: #cf222e; --bg: #f0f2f5; --border: #ccc; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; display: flex; height: 100vh; overflow: hidden; font-size: 12px; }
+        #sidebar { width: 190px; background: #fff; border-right: 1px solid var(--border); padding: 15px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+        #main-content { flex: 1; padding: 20px; display: flex; flex-direction: column; overflow-y: auto; background: white; position: relative; }
+        .sidebar-title { font-size: 14px; font-weight: bold; color: #333; margin-bottom: 5px; text-align: center; }
+        .table-container { width: 100%; border: 2px solid #333; margin-bottom: 30px; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; background: white; }
+        th, td { border: 1px solid var(--border); padding: 0; height: 32px; text-align: center; vertical-align: middle; }
+        .header-row { height: 140px; background: #f8f9fa; }
+        .vertical-th { width: 40px; vertical-align: bottom; padding: 10px 0; }
+        .vertical-text-wrapper { writing-mode: vertical-rl; text-orientation: upright; display: inline-block; text-align: left; max-height: 120px; margin: 0 auto; }
+        .habit-name-input { border: none; background: transparent; width: 100%; font-weight: bold; font-size: 12px; text-transform: uppercase; outline: none; letter-spacing: 2px; }
+        .col-date { width: 45px; font-weight: bold; background: #eee; }
+        .col-habit { width: 40px; }
+        .col-diary { width: auto; text-align: left; padding-left: 10px; font-weight: bold; }
+        .habit-cell { width: 100%; height: 100%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; transition: background 0.1s; }
+        .habit-cell.done { background-color: var(--success) !important; color: white; }
+        .habit-cell.fail { background-color: #fff0f0; color: var(--fail); font-weight: bold; }
+        tr.today { background-color: #fffbe6; }
+        .diary-input { width: 100%; height: 100%; border: none; background: transparent; padding: 0 10px; outline: none; }
+        #goal-input-container { display: none; background: #fffbe6; padding: 12px; border: 1px solid #ffe58f; margin-bottom: 15px; border-radius: 6px; }
+        .mini-cal { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 10px; }
+        .mini-cal td { height: 18px; border: none; padding: 1px; }
+        .cal-day-cell { border-radius: 2px; display: block; height: 16px; line-height: 16px; text-align: center; }
         .cal-today { border: 1.5px solid #333 !important; font-weight: bold; }
+        .month-item { padding: 6px; cursor: pointer; border-radius: 4px; text-align: center; margin-bottom: 4px; border: 1px solid #eee; }
+        .month-item.active { background: var(--primary); color: white; font-weight: bold; }
         
-        .month-item { padding: 5px; cursor: pointer; border-radius: 4px; text-align: center; font-size: 11px; }
-        .month-item.active { background: #e7f3ff; color: var(--primary); font-weight: bold; }
-        #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 6px 15px; border-radius: 20px; display: none; z-index: 3000; }
+        #toast { 
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            background: rgba(0, 0, 0, 0.7); color: white; padding: 12px 25px; 
+            border-radius: 8px; display: none; z-index: 9999; font-weight: bold; pointer-events: none; 
+        }
     </style>
 </head>
 <body>
 
-<div id="toast">저장됨</div>
-
-<div id="modal-overlay">
-    <div class="modal-card">
-        <h2 style="margin: 0;">🎉 한 달 완료!</h2>
-        <p style="color: #666;">이번 달의 성취를 한 문장으로 기록해 보세요.</p>
-        <textarea id="report-text" placeholder="이번 달은 어떤 점이 좋았나요? 다음 달의 다짐은?"></textarea>
-        <button class="btn-save" onclick="saveMonthlyReport()">총평 저장하고 마무리</button>
-    </div>
-</div>
+<div id="toast">✅ 저장되었습니다</div>
 
 <div id="sidebar">
-    <div>
-        <h3 style="margin: 0 0 8px 0; font-size: 12px;">📁 기록 선택</h3>
+    <div id="sidebar-month-display" class="sidebar-title"></div>
+    <div id="mini-calendar-container"></div>
+    <div style="width: 100%; height: 160px;"><canvas id="radarChart"></canvas></div>
+    <div style="margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px;">
+        <div style="font-size: 11px; color: #999; margin-bottom: 5px;">HISTORY</div>
         <div id="month-list"></div>
-    </div>
-    <div>
-        <h3 style="margin: 0 0 8px 0; font-size: 12px;">📅 이번 달 현황</h3>
-        <div id="mini-calendar-container"></div>
-    </div>
-    <div style="margin-top: auto;">
-        <h3 style="margin: 0 0 5px 0; font-size: 11px; text-align: center; color: #666;">📊 밸런스</h3>
-        <canvas id="radarChart"></canvas>
     </div>
 </div>
 
 <div id="main-content">
-    <div class="card table-container">
-        <h2 id="current-month-title" style="margin: 0 0 10px 0; font-size: 15px;"></h2>
+    <div style="display: flex; align-items: baseline; gap: 15px; margin-bottom: 15px; flex-shrink: 0;">
+        <h1 id="current-month-title" style="margin:0; font-size: 26px; letter-spacing: -1px;"></h1>
+        <div id="display-goal" style="font-size: 15px; color: var(--primary); font-weight: bold; font-style: italic;"></div>
+    </div>
+
+    <div id="goal-input-container">
+        <span style="font-weight: bold; margin-right: 10px;">🎯 이달의 목표 설정</span>
+        <input type="text" id="goal-input" style="width: 75%; padding: 6px; border: 1px solid #ccc; border-radius: 4px;" 
+               placeholder="예: 운동 10일 이상하기" onchange="updateMonthlyGoal(this.value)" autocomplete="off">
+    </div>
+
+    <div class="table-container">
         <table>
             <thead>
-                <tr>
-                    <th class="col-date">날짜</th>
-                    <th class="col-habit"><input class="habit-name-input" id="name-h1" onchange="updateHabitName('h1_name', this.value)"></th>
-                    <th class="col-habit"><input class="habit-name-input" id="name-h2" onchange="updateHabitName('h2_name', this.value)"></th>
-                    <th class="col-habit"><input class="habit-name-input" id="name-h3" onchange="updateHabitName('h3_name', this.value)"></th>
-                    <th>한 줄 일기</th>
+                <tr class="header-row">
+                    <th class="col-date">DAY</th>
+                    <th class="vertical-th"><div class="vertical-text-wrapper"><input class="habit-name-input" id="name-h1" onchange="updateHabitName('h1_name', this.value)" autocomplete="off"></div></th>
+                    <th class="vertical-th"><div class="vertical-text-wrapper"><input class="habit-name-input" id="name-h2" onchange="updateHabitName('h2_name', this.value)" autocomplete="off"></div></th>
+                    <th class="vertical-th"><div class="vertical-text-wrapper"><input class="habit-name-input" id="name-h3" onchange="updateHabitName('h3_name', this.value)" autocomplete="off"></div></th>
+                    <th class="col-diary">HIGHLIGHTS</th>
                 </tr>
             </thead>
             <tbody id="habit-table-body"></tbody>
         </table>
     </div>
 
-    <div id="report-display-area" class="card">
-        <h4>📝 이달의 회고</h4>
-        <p id="saved-report-content" style="margin: 5px 0; line-height: 1.5; font-size: 13px;"></p>
+    <div id="report-display-area" style="display:none; margin-top: 10px; padding: 20px; background: #f8f9fa; border: 1px solid #ddd;">
+        <h3 style="margin:0 0 10px 0;">📝 Monthly Reflection</h3>
+        <p id="saved-report-content" style="white-space: pre-wrap; line-height: 1.6; font-size: 14px;"></p>
     </div>
 </div>
 
@@ -106,6 +92,7 @@
     let habitData = {};
     let settings = {};
     let radarChart = null;
+    let isFirstLoad = true; // 스크롤 튐 방지 플래그
 
     window.onload = async () => {
         await loadMonthList();
@@ -122,13 +109,15 @@
         document.getElementById('name-h1').value = settings.h1_name;
         document.getElementById('name-h2').value = settings.h2_name;
         document.getElementById('name-h3').value = settings.h3_name;
-        document.getElementById('current-month-title').innerText = yearMonth.replace('-', '년 ') + '월';
+        document.getElementById('current-month-title').innerText = yearMonth.replace('-', ' ');
+        document.getElementById('sidebar-month-display').innerText = yearMonth.replace('-', '. ');
+        document.getElementById('display-goal').innerText = data.goal ? `목표: ${data.goal}` : "";
+        document.getElementById('goal-input').value = data.goal || "";
         
         renderTable(yearMonth);
         updateChart();
         renderMiniCalendar(yearMonth);
 
-        // 총평 로드 및 표시
         const displayArea = document.getElementById('report-display-area');
         if (data.report) {
             displayArea.style.display = 'block';
@@ -138,21 +127,17 @@
         }
     }
 
-    // ... 기존 loadMonthList, renderTable 은 동일하게 유지 ...
     async function loadMonthList() {
         const res = await fetch('/api/get_months');
         const months = await res.json();
         if (!months.includes(currentMonth)) months.unshift(currentMonth);
         const list = document.getElementById('month-list');
         list.innerHTML = '';
-        months.forEach(m => {
+        months.slice(0, 10).forEach(m => {
             const div = document.createElement('div');
             div.className = `month-item ${m === currentMonth ? 'active' : ''}`;
-            div.innerText = m.replace('-', '/') + '월';
-            div.onclick = () => { currentMonth = m; loadAllData(m); 
-                document.querySelectorAll('.month-item').forEach(el => el.classList.remove('active'));
-                div.classList.add('active');
-            };
+            div.innerText = m;
+            div.onclick = () => { currentMonth = m; isFirstLoad = true; loadAllData(m); };
             list.appendChild(div);
         });
     }
@@ -167,21 +152,72 @@
         for (let d = 1; d <= daysInMonth; d++) {
             const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
             const dayData = habitData[dateStr] || { habit1: 0, habit2: 0, habit3: 0, diary: '' };
-            const dayOfWeek = new Date(year, month - 1, d).getDay();
             const tr = document.createElement('tr');
             if (dateStr === todayStr) tr.className = 'today';
-            const dayClass = dayOfWeek === 6 ? 'sat' : (dayOfWeek === 0 ? 'sun' : '');
 
             tr.innerHTML = `
-                <td class="${dayClass}">${d}</td>
-                <td><div class="habit-box ${dayData.habit1==1?'done':dayData.habit1==2?'fail':''}" onclick="toggleHabit('${dateStr}',1)">${dayData.habit1==2?'X':''}</div></td>
-                <td><div class="habit-box ${dayData.habit2==1?'done':dayData.habit2==2?'fail':''}" onclick="toggleHabit('${dateStr}',2)">${dayData.habit2==2?'X':''}</div></td>
-                <td><div class="habit-box ${dayData.habit3==1?'done':dayData.habit3==2?'fail':''}" onclick="toggleHabit('${dateStr}',3)">${dayData.habit3==2?'X':''}</div></td>
-                <td><input type="text" class="diary-input" value="${dayData.diary}" onchange="saveDiary('${dateStr}', this.value)"></td>
+                <td class="col-date">${d}</td>
+                <td class="col-habit"><div id="cell-${dateStr}-1" class="habit-cell ${dayData.habit1==1?'done':dayData.habit1==2?'fail':''}" onclick="toggleHabit('${dateStr}',1)">${dayData.habit1==2?'X':''}</div></td>
+                <td class="col-habit"><div id="cell-${dateStr}-2" class="habit-cell ${dayData.habit2==1?'done':dayData.habit2==2?'fail':''}" onclick="toggleHabit('${dateStr}',2)">${dayData.habit2==2?'X':''}</div></td>
+                <td class="col-habit"><div id="cell-${dateStr}-3" class="habit-cell ${dayData.habit3==1?'done':dayData.habit3==2?'fail':''}" onclick="toggleHabit('${dateStr}',3)">${dayData.habit3==2?'X':''}</div></td>
+                <td class="col-diary"><input type="text" class="diary-input" value="${dayData.diary}" onchange="saveDiary('${dateStr}', this.value)" placeholder="..." autocomplete="off"></td>
             `;
             tbody.appendChild(tr);
-            if (dateStr === todayStr) tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // 첫 로드 시에만 오늘 날짜로 스크롤 이동
+            if (isFirstLoad && dateStr === todayStr) {
+                setTimeout(() => {
+                    tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    isFirstLoad = false;
+                }, 100);
+            }
         }
+    }
+
+    async function toggleHabit(date, num) {
+        if (!habitData[date]) habitData[date] = { date, habit1:0, habit2:0, habit3:0, diary:'' };
+        
+        // 데이터 업데이트
+        habitData[date][`habit${num}`] = (habitData[date][`habit${num}`] + 1) % 3;
+        
+        // 화면 즉시 반영 (전체 리로드 방지)
+        const cell = document.getElementById(`cell-${date}-${num}`);
+        const val = habitData[date][`habit${num}`];
+        cell.className = `habit-cell ${val==1?'done':val==2?'fail':''}`;
+        cell.innerText = val==2?'X':'';
+
+        await save(habitData[date]);
+        
+        // 1일에 기록 시 목표창 노출
+        if (date.endsWith('-01')) document.getElementById('goal-input-container').style.display = 'block';
+        
+        updateChart();
+        renderMiniCalendar(currentMonth); // 사이드바 달력만 업데이트
+    }
+
+    async function saveDiary(date, text) {
+        if (!habitData[date]) habitData[date] = { date, habit1:0, habit2:0, habit3:0, diary:'' };
+        habitData[date].diary = text;
+        await save(habitData[date]);
+        if (date.endsWith('-01')) document.getElementById('goal-input-container').style.display = 'block';
+        updateChart();
+    }
+
+    async function save(data) {
+        await fetch('/api/save_habit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        showToast();
+    }
+
+    async function updateMonthlyGoal(val) {
+        await fetch('/api/save_goal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year_month: currentMonth, content: val }) });
+        document.getElementById('display-goal').innerText = val ? `목표: ${val}` : "";
+        showToast();
+    }
+
+    async function updateHabitName(key, value) {
+        await fetch('/api/save_setting', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) });
+        showToast();
+        updateChart();
     }
 
     function renderMiniCalendar(yearMonth) {
@@ -190,82 +226,39 @@
         const firstDay = new Date(year, month - 1, 1).getDay();
         const daysInMonth = new Date(year, month, 0).getDate();
         const todayStr = new Date().toLocaleDateString('sv-SE');
-        let html = '<table class="mini-cal"><thead><tr><th class="sun">일</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th class="sat">토</th></tr></thead><tbody><tr>';
+        let html = '<table class="mini-cal"><tbody><tr>';
         for (let i = 0; i < firstDay; i++) html += '<td></td>';
         for (let d = 1; d <= daysInMonth; d++) {
             if ((firstDay + d - 1) % 7 === 0 && d !== 1) html += '</tr><tr>';
             const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-            const dayData = habitData[dateStr] || { habit1: 0, habit2: 0, habit3: 0 };
-            const count = (dayData.habit1 === 1 ? 1 : 0) + (dayData.habit2 === 1 ? 1 : 0) + (dayData.habit3 === 1 ? 1 : 0);
-            let bgColor = '#ebedf0'; let textColor = '#333';
-            if (count === 3) { bgColor = '#2da44e'; textColor = '#fff'; }
-            else if (count === 2) { bgColor = '#9be9a8'; textColor = '#000'; }
-            else if (count === 1) { bgColor = '#ffee4a'; textColor = '#000'; }
-            const todayClass = dateStr === todayStr ? 'cal-today' : '';
-            html += `<td><span class="cal-day-cell ${todayClass}" style="background:${bgColor}; color:${textColor};">${d}</span></td>`;
+            const dayData = habitData[dateStr] || { habit1:0, habit2:0, habit3:0 };
+            const count = (dayData.habit1===1?1:0)+(dayData.habit2===1?1:0)+(dayData.habit3===1?1:0);
+            let color = '#ebedf0';
+            if (count === 3) color = '#2da44e'; else if (count === 2) color = '#9be9a8'; else if (count === 1) color = '#ffee4a';
+            html += `<td><span class="cal-day-cell ${dateStr===todayStr?'cal-today':''}" style="background:${color}">${d}</span></td>`;
         }
         html += '</tr></tbody></table>';
         container.innerHTML = html;
     }
 
-    // 4. 월말 체크 및 모달 표시 로직
-    async function saveDiary(date, text) {
-        if (!habitData[date]) habitData[date] = { date, habit1:0, habit2:0, habit3:0, diary:'' };
-        habitData[date].diary = text;
-        await save(habitData[date]);
-        
-        // 오늘이 월말인지 확인
-        const dateObj = new Date(date);
-        const lastDay = new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 0).getDate();
-        if (dateObj.getDate() === lastDay && text.length > 2) {
-            document.getElementById('modal-overlay').style.display = 'flex';
-        }
-        updateChart();
-    }
-
-    async function saveMonthlyReport() {
-        const content = document.getElementById('report-text').value;
-        if (!content) return alert("총평을 입력해 주세요.");
-        
-        await fetch('/api/save_report', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ year_month: currentMonth, content })
-        });
-        
-        document.getElementById('modal-overlay').style.display = 'none';
-        loadAllData(currentMonth); // 즉시 하단에 표시되도록 리로드
-    }
-
-    // ... 기존 toggleHabit, save, updateChart 등은 동일 ...
-    async function toggleHabit(date, num) {
-        if (!habitData[date]) habitData[date] = { date, habit1:0, habit2:0, habit3:0, diary:'' };
-        habitData[date][`habit${num}`] = (habitData[date][`habit${num}`] + 1) % 3;
-        await save(habitData[date]);
-        loadAllData(currentMonth);
-    }
-    async function save(data) {
-        await fetch('/api/save_habit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-        showToast();
-    }
-    function showToast() {
-        const t = document.getElementById('toast'); t.style.display = 'block';
-        setTimeout(() => { t.style.display = 'none'; }, 800);
-    }
     function updateChart() {
         const values = Object.values(habitData);
         const calc = (num) => (values.filter(v => v[`habit${num}`] === 1).length / 31) * 100;
-        const dRate = (values.filter(v => v.diary.length > 0).length / 31) * 100;
-        const dataSet = [calc(1), calc(2), calc(3), dRate, 75];
-        const labels = [document.getElementById('name-h1').value, document.getElementById('name-h2').value, document.getElementById('name-h3').value, '일기', '지속성'];
+        const dataSet = [calc(1), calc(2), calc(3), 85, 75];
+        const labels = [document.getElementById('name-h1').value, document.getElementById('name-h2').value, document.getElementById('name-h3').value, 'DIARY', 'STABILITY'];
         if (radarChart) {
             radarChart.data.labels = labels; radarChart.data.datasets[0].data = dataSet; radarChart.update();
         } else {
-            const ctx = document.getElementById('radarChart');
-            radarChart = new Chart(ctx, { type: 'radar', data: {
-                labels: labels, datasets: [{ label: '달성도', data: dataSet, backgroundColor: 'rgba(0,123,255,0.1)', borderColor: '#007bff', pointRadius: 1 }]
-            }, options: { responsive: true, scales: { r: { suggestedMin: 0, suggestedMax: 100, ticks: { display: false } } }, plugins: { legend: { display: false } } } });
+            radarChart = new Chart(document.getElementById('radarChart'), { type: 'radar', data: {
+                labels: labels, datasets: [{ data: dataSet, backgroundColor: 'rgba(0,123,255,0.1)', borderColor: '#007bff', borderWidth: 2, pointRadius: 0 }]
+            }, options: { responsive: true, maintainAspectRatio: false, scales: { r: { suggestedMin: 0, suggestedMax: 100, ticks: { display: false } } }, plugins: { legend: { display: false } } } });
         }
+    }
+
+    function showToast() {
+        const t = document.getElementById('toast'); 
+        t.style.display = 'block';
+        setTimeout(() => { t.style.display = 'none'; }, 800);
     }
 </script>
 </body>
