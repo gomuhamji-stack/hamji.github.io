@@ -207,6 +207,9 @@
         const xKey = c[2];
         for (let i = 0; i < 16; i++) report[24 + i] = (xKey ^ sr[i]) & 0xFF;
 
+        const reportHex = Array.from(report).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+        log(`>> [DEBUG REPORT] ${reportHex}`, "sys");
+
         device.sendReport(0, report).then(() => log(`>> [SEND UNLOCK] 9A 00`, "out"));
     }
 
