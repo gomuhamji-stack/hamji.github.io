@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Heart Rate Monitor + Timer</title>
+  <style>
+    body { 
+      font-family: sans-serif; 
+      padding: 20px; 
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .container {
+      display: flex;
+      gap: 40px;
+      margin-top: 20px;
+    }
+    #heart-rate-container {
+      width: 100px;
+      height: 300px;
+      background: #eee;
+      border-radius: 5px;
+      position: relative;
+      overflow: hidden;
+    }
+    #heart-rate-fill {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      height: 0;
+      background: lightgreen;
+      transition: height 0.2s;
+    }
+    .debug { 
+      margin-top: 20px; 
+      background: #f0f0f0; 
+      padding: 10px; 
+      border-radius: 8px; 
+      width: 300px;
+    }
+    .debug h3 { margin-top: 0; }
+    .info { font-family: monospace; white-space: pre-wrap; }
+
+    #timer-container {
+      width: 100px;
+      height: 300px;
+      border: 2px solid #333;
+      border-radius: 20px;
+      position: relative;
+      background: #f9f9f9;
+    }
+    #timer-fill {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      height: 0%;
+      background: #4caf50;
+      border-radius: 0 0 18px 18px;
+      transition: height 1s linear;
+    }
+    #timer-text {
+      margin-top: 10px;
+      font-size: 1.2em;
+      font-weight: bold;
+      text-align: center;
+    }
+    #start-timer {
+      margin-top: 10px;
+      padding: 8px 16px;
+      font-size: 1em;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Heart Rate Monitor + 40분 타이머</h1>
+  <button id="connect-btn">Connect & Start Notifications</button>
+  
+  <p>Heart Rate: <span id="heart-rate">--</span> bpm</p>
+  
+  <div class="container">
+    <div id="heart-rate-container">
+      <div id="heart-rate-fill"></div>
+    </div>
+
+    <div id="timer-container">
+      <div id="timer-fill"></div>
+    </div>
+  </div>
+  
+  <div id="timer-text">40:00</div>
+  <button id="start-timer">Start Timer</button>
+
+  <div class="debug">
+    <h3>Debug Info</h3>
+    <div class="info" id="debug-log"></div>
+  </div>
+
+  <script>
+    const connectButton = document.getElementById('connect-btn');
+    const heartRateDisplay = document.getElementById('heart-rate');
+    const debugLog = document.getElementById('debug-log');
+    const heartRateFill = document.getElementById('heart-rate-fill');
+
+    let device, server, service, characteristic;
+
+    connectButton.addEventListener('click', async () => {
+      try {
+        debugLog.textContent = "🔄 Connecting to device...\n";
+
+        device = await navigator.bluetooth.requestDevice({
+          filters: [{ services: ['heart_rate'] }]
+        });
+
+        debugLog.textContent += `✅ Device Name: ${device.name}\n`;
+
+        server = await device.gatt.connect();
+        debugLog.textContent += `✅ GATT Server connected\n`;
+
+        service = await server.getPrimaryService('heart_rate');
+        debugLog.textContent += `✅ Primary Service: heart_rate\n`;
+
+        characteristic = await service.getCharacteristic('heart_rate_measurement');
+        debugLog.textContent += `✅ Characteristic: heart_rate_measurement\n`;
+
+        const props = characteristic.properties;
+        const propsInfo = `
+        properties:
+          broadcast: ${props.broadcast}
+          read: ${props.read}
+          writeWithoutResponse: ${props.writeWithoutResponse}
+          write: ${props.write}
+          notify: ${props.notify}
+          indicate: ${props.indicate}
+        `;
+        debugLog.textContent += `\n🔧 Characteristic Properties:\n${propsInfo}\n`;
+
+        await characteristic.startNotifications();
+        debugLog.textContent += "🚀 Notifications started!\n";
+
+        characteristic.addEventListener('characteristicvaluechanged', (event) => {
+          const value = event.target.value;
+          const flags = value.getUint8(0);
+          let heartRate;
+
+          if (flags & 0x01) {
+            heartRate = value.getUint16(1, true);
+          } else {
+            heartRate = value.getUint8(1);
+          }
+
+          heartRateDisplay.textContent = `${heartRate}`;
+          updateHeartRateBar(heartRate);
+        });
+
+      } catch (error) {
+        console.error('❌ Error:', error);
+        debugLog.textContent += `❌ Error: ${error.message}\n`;
+      }
+    });
+
+    function updateHeartRateBar(heartRate) {
+      const minHR = 50;
+      const maxHR = 200;
+      const percent = Math.max(0, Math.min(1, (heartRate - minHR) / (maxHR - minHR))) * 100;
+
+      heartRateFill.style.height = `${percent}%`;
+
+      if (heartRate <= 124) {
+        heartRateFill.style.backgroundColor = 'lightgreen';
+      } else if (heartRate >= 136) {
+        heartRateFill.style.backgroundColor = 'red';
+      } else {
+        heartRateFill.style.backgroundColor = 'green';
+      }
+    }
+
+    const timerFill = document.getElementById('timer-fill');
+    const timerText = document.getElementById('timer-text');
+    const startTimerButton = document.getElementById('start-timer');
+
+    let timerInterval;
+
+    startTimerButton.addEventListener('click', () => {
+      clearInterval(timerInterval);
+
+      const totalTime = 40 * 60;
+      let remainingTime = totalTime;
+
+      function updateTimer() {
+        const elapsedPercent = 100 - (remainingTime / totalTime * 100);
+        timerFill.style.height = `${elapsedPercent}%`;
+
+        const minutes = Math.floor(remainingTime / 60);
+        const seconds = remainingTime % 60;
+        timerText.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+        if (remainingTime <= 0) {
+          clearInterval(timerInterval);
+        } else {
+          remainingTime--;
+        }
+      }
+
+      updateTimer();
+      timerInterval = setInterval(updateTimer, 1000);
+    });
+  </script>
+</body>
+</html>
